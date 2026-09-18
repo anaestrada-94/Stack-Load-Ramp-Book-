@@ -460,7 +460,6 @@ export function LandBankTable({
     }
 
     return (
-        <div className="rounded-lg border border-gray-gray200 dark:border-gray-gray600 bg-white dark:bg-gray-gray700 shadow-sm">
             <table className="border-collapse table-fixed text-[14px] w-full">
                 <colgroup>
                     {showDetails ? <col style={colStyle(COL.expand)} /> : null}
@@ -780,7 +779,6 @@ export function LandBankTable({
                     </tfoot>
                 ) : null}
             </table>
-        </div>
     );
 }
 

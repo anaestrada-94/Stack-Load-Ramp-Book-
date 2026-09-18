@@ -960,9 +960,9 @@ function LandBankApp() {
     }
 
     return (
-        <div className="w-full h-full min-h-screen max-w-full overflow-hidden bg-white dark:bg-gray-gray800 flex flex-col">
-            <div className="w-full max-w-full min-h-0 flex-1 flex flex-col p-4 sm:p-6 lg:p-8 pb-16 sm:pb-20 lg:pb-24">
-                <div className="w-full max-w-full shrink-0">
+        <div className="w-full max-w-full bg-white dark:bg-gray-gray800">
+            <div className="w-full max-w-full p-4 sm:p-6 lg:p-8 pb-16 sm:pb-20 lg:pb-24">
+                <div className="w-full max-w-full">
                     <DashboardHeader
                         logoSrc={stackLogo}
                         view={dashboardView}
@@ -997,7 +997,7 @@ function LandBankApp() {
                         underCount={underRows.length}
                     />
                 </div>
-                <div className="w-full max-w-full min-h-0 flex-1 overflow-auto">
+                <div className="w-full max-w-full">
                     <LandBankTable
                         rows={visibleRows}
                         years={years}

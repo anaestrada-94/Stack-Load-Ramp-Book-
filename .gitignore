@@ -2,4 +2,5 @@
 /.airtableblocksrc.json
 /build
 /.block
+/.tmp
 temp-output-*.css
