@@ -357,68 +357,111 @@ function VerifyButton({onClick, disabled, label = 'Verify'}) {
     );
 }
 
-function RampEntriesPanel({
-    row,
-    canExpandRamp,
-    onRampClick,
-}) {
-    const entries = row.rampEntries || [];
+function ProjectEntriesTable({entries, canExpandRamp, onRampClick}) {
+    let cumulativeMw = 0;
+    let hasCumulativeMw = false;
+
+    return (
+        <table className="w-full max-w-3xl border-collapse text-[14px]">
+            <thead>
+                <tr className="text-left text-[12px] uppercase text-gray-gray500 dark:text-gray-gray400">
+                    <th className="px-2 py-1 font-semibold">Date</th>
+                    <th className="px-2 py-1 font-semibold">Incremental MW</th>
+                    <th className="px-2 py-1 font-semibold">Cumulative MW</th>
+                    <th className="px-2 py-1 font-semibold">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {entries.map((entry) => {
+                    if (entry.mw != null) {
+                        cumulativeMw += entry.mw;
+                        hasCumulativeMw = true;
+                    }
+                    return (
+                        <tr
+                            key={entry.id}
+                            className="border-t border-gray-gray200 dark:border-gray-gray600"
+                        >
+                            <td className="px-2 py-1.5">
+                                {canExpandRamp && onRampClick && entry.record ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => onRampClick(entry.record)}
+                                        className="text-blue-blue dark:text-blue-blueLight1 underline-offset-2 hover:underline"
+                                    >
+                                        {entry.dateLabel || '—'}
+                                    </button>
+                                ) : (
+                                    entry.dateLabel || '—'
+                                )}
+                            </td>
+                            <td className="px-2 py-1.5 tabular-nums">{formatMw(entry.mw)}</td>
+                            <td className="px-2 py-1.5 tabular-nums">
+                                {hasCumulativeMw ? formatMw(cumulativeMw) : '—'}
+                            </td>
+                            <td className="px-2 py-1.5">
+                                {entry.verified ? (
+                                    <span className="font-semibold text-green-green">Verified</span>
+                                ) : (
+                                    <span className="text-gray-gray600 dark:text-gray-gray300">
+                                        {entry.statusLabel || 'Not Verified'}
+                                    </span>
+                                )}
+                            </td>
+                        </tr>
+                    );
+                })}
+            </tbody>
+        </table>
+    );
+}
+
+function RampEntriesPanel({row, canExpandRamp, onRampClick, onProjectClick}) {
+    const projectGroups = row.projectGroups || [];
 
     return (
         <div className="px-3 py-3 text-left">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <p className="text-[12px] font-semibold uppercase tracking-wide text-gray-gray600 dark:text-gray-gray300">
-                    Load Ramp entries
+                    Load Ramp entries by project
                 </p>
             </div>
-            {entries.length === 0 ? (
+            {projectGroups.length === 0 ? (
                 <p className="text-[14px] text-gray-gray500">No Load Ramp records for this campus.</p>
             ) : (
-                <table className="w-full max-w-3xl border-collapse text-[14px]">
-                    <thead>
-                        <tr className="text-left text-[12px] uppercase text-gray-gray500 dark:text-gray-gray400">
-                            <th className="px-2 py-1 font-semibold">Date</th>
-                            <th className="px-2 py-1 font-semibold">MW</th>
-                            <th className="px-2 py-1 font-semibold">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {entries.map((entry) => (
-                            <tr
-                                key={entry.id}
-                                className="border-t border-gray-gray200 dark:border-gray-gray600"
-                            >
-                                <td className="px-2 py-1.5">
-                                    {canExpandRamp && onRampClick && entry.record ? (
+                <div className="flex flex-col gap-4">
+                    {projectGroups.map((group) => {
+                        const canOpenProject = Boolean(onProjectClick && group.record);
+                        return (
+                            <div key={group.label}>
+                                <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+                                    {canOpenProject ? (
                                         <button
                                             type="button"
-                                            onClick={() => onRampClick(entry.record)}
-                                            className="text-blue-blue dark:text-blue-blueLight1 underline-offset-2 hover:underline"
+                                            onClick={() => onProjectClick(group.record)}
+                                            title="Open this project"
+                                            className="text-[13px] font-semibold text-blue-blue dark:text-blue-blueLight1 underline-offset-2 hover:underline"
                                         >
-                                            {entry.dateLabel || '—'}
+                                            {group.label}
                                         </button>
                                     ) : (
-                                        entry.dateLabel || '—'
+                                        <p className="text-[13px] font-semibold text-gray-gray800 dark:text-gray-gray100">
+                                            {group.label}
+                                        </p>
                                     )}
-                                </td>
-                                <td className="px-2 py-1.5 tabular-nums">
-                                    {formatMw(entry.mw)}
-                                </td>
-                                <td className="px-2 py-1.5">
-                                    {entry.verified ? (
-                                        <span className="font-semibold text-green-green">
-                                            Verified
-                                        </span>
-                                    ) : (
-                                        <span className="text-gray-gray600 dark:text-gray-gray300">
-                                            {entry.statusLabel || 'Not Verified'}
-                                        </span>
-                                    )}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+                                    <p className="text-[12px] tabular-nums text-gray-gray500 dark:text-gray-gray400">
+                                        Total: {formatMw(group.mw)}
+                                    </p>
+                                </div>
+                                <ProjectEntriesTable
+                                    entries={group.entries}
+                                    canExpandRamp={canExpandRamp}
+                                    onRampClick={onRampClick}
+                                />
+                            </div>
+                        );
+                    })}
+                </div>
             )}
         </div>
     );
@@ -430,6 +473,7 @@ export function LandBankTable({
     canExpandRamp,
     onCampusClick,
     onRampClick,
+    onProjectClick,
     emptyMessage,
     view = 'enterprise',
 }) {
@@ -457,6 +501,10 @@ export function LandBankTable({
             else next.add(id);
             return next;
         });
+    }
+
+    function expandRow(id) {
+        setExpandedIds((current) => (current.has(id) ? current : new Set(current).add(id)));
     }
 
     return (
@@ -715,14 +763,42 @@ export function LandBankTable({
                                         <Cell className="tabular-nums whitespace-nowrap">
                                             {formatMw(row.pipelineMw)}
                                         </Cell>
-                                        {quarterCols.map((q) => (
-                                            <Cell
-                                                key={q.key}
-                                                className="tabular-nums whitespace-nowrap border-l border-gray-gray100 dark:border-gray-gray600"
-                                            >
-                                                {formatMw(row.quarters?.[q.key], {empty: ''})}
-                                            </Cell>
-                                        ))}
+                                        {quarterCols.map((q) => {
+                                            const mwValue = row.quarters?.[q.key];
+                                            const entries = row.quarterEntries?.[q.key] || [];
+                                            const canJumpToPhase =
+                                                canExpandRamp &&
+                                                onRampClick &&
+                                                mwValue != null &&
+                                                entries.length > 0;
+                                            return (
+                                                <Cell
+                                                    key={q.key}
+                                                    className="tabular-nums whitespace-nowrap border-l border-gray-gray100 dark:border-gray-gray600"
+                                                >
+                                                    {!canJumpToPhase ? (
+                                                        formatMw(mwValue, {empty: ''})
+                                                    ) : (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                entries.length === 1
+                                                                    ? onRampClick(entries[0].record)
+                                                                    : expandRow(row.id)
+                                                            }
+                                                            title={
+                                                                entries.length === 1
+                                                                    ? 'Open this phase'
+                                                                    : `${entries.length} phases — show Load Ramp entries`
+                                                            }
+                                                            className="text-blue-blue dark:text-blue-blueLight1 underline-offset-2 hover:underline tabular-nums"
+                                                        >
+                                                            {formatMw(mwValue, {empty: ''})}
+                                                        </button>
+                                                    )}
+                                                </Cell>
+                                            );
+                                        })}
                                         <Cell className="tabular-nums font-medium whitespace-nowrap">
                                             {formatMw(row.longTermMw, {empty: ''})}
                                         </Cell>
@@ -737,6 +813,7 @@ export function LandBankTable({
                                                     row={row}
                                                     canExpandRamp={canExpandRamp}
                                                     onRampClick={onRampClick}
+                                                    onProjectClick={onProjectClick}
                                                 />
                                             </td>
                                         </tr>
@@ -894,6 +971,8 @@ export function CampusEditForm({
     supplierField,
     landStatusField,
     rezoningStatusField,
+    waterCapacityField,
+    powerConfidenceField,
     onClose,
 }) {
     const fields = useMemo(
@@ -903,8 +982,25 @@ export function CampusEditForm({
                 {key: 'supplier', label: 'Supplier Building Code', field: supplierField},
                 {key: 'landStatus', label: 'Land Status', field: landStatusField},
                 {key: 'rezoningStatus', label: 'Rezoning Status', field: rezoningStatusField},
+                {
+                    key: 'waterCapacity',
+                    label: 'Water Capacity',
+                    field: waterCapacityField,
+                },
+                {
+                    key: 'powerConfidence',
+                    label: 'Power Utility Confidence Level',
+                    field: powerConfidenceField,
+                },
             ].filter((item) => item.field),
-        [metroField, supplierField, landStatusField, rezoningStatusField],
+        [
+            metroField,
+            supplierField,
+            landStatusField,
+            rezoningStatusField,
+            waterCapacityField,
+            powerConfidenceField,
+        ],
     );
 
     const [values, setValues] = useState(() => {

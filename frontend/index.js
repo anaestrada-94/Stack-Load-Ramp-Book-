@@ -349,6 +349,28 @@ function getCustomProperties(base) {
                               typePredicate: isLastModifiedField,
                           }),
                   },
+                  {
+                      key: 'loadRampProjectField',
+                      label: 'Project (on Load Ramp — groups entries into phases)',
+                      type: 'field',
+                      table: loadRampFieldsTable,
+                      shouldFieldBeAllowed: (field) =>
+                          isLinkField(field) || isCampusNameField(field),
+                      defaultValue:
+                          findFieldByExactNames(loadRampFieldsTable, [
+                              'Project_linked',
+                              'Project Linked',
+                              'Project',
+                          ]) ||
+                          findFieldByNameHints(loadRampFieldsTable, [
+                              'project_linked',
+                              'project linked',
+                              'project',
+                          ], {
+                              typePredicate: (field) =>
+                                  isLinkField(field) || isCampusNameField(field),
+                          }),
+                  },
               ]
             : []),
     ];
@@ -421,6 +443,7 @@ function buildRampLookup({
     loadRampStatusField,
     loadRampLastModifiedField,
     loadRampVerifiedAtField,
+    loadRampProjectField,
     years,
     startYear,
     startMonth,
@@ -458,6 +481,12 @@ function buildRampLookup({
         const quarter = quarterFromMonth(parts?.month);
         const key = quarter && parts?.year ? quarterKey(parts.year, quarter) : null;
         const isInHorizon = Boolean(!beforeStart && key && validKeys.has(key));
+        const projectLabel = loadRampProjectField
+            ? readCellDisplayName(record, loadRampProjectField)
+            : '';
+        const projectRecordId = loadRampProjectField
+            ? getLinkedRecordIds(record.getCellValue(loadRampProjectField))[0] || null
+            : null;
         const entry = {
             id: record.id,
             record,
@@ -468,6 +497,8 @@ function buildRampLookup({
             verified,
             afterHorizon,
             inHorizon: isInHorizon,
+            projectLabel,
+            projectRecordId,
         };
 
         const addTo = (mapKey) => {
@@ -601,6 +632,26 @@ function LandBankApp() {
             typePredicate: isLastModifiedField,
         },
     );
+    const loadRampProjectField = resolveField(
+        loadRampTable,
+        customPropertyValueByKey.loadRampProjectField,
+        {
+            exactNames: ['Project_linked', 'Project Linked', 'Project'],
+            typePredicate: (field) => isLinkField(field) || isCampusNameField(field),
+        },
+    );
+    const projectsTable =
+        loadRampProjectField && isLinkField(loadRampProjectField)
+            ? base.getTableByIdIfExists(
+                  loadRampProjectField?.config?.options?.linkedTableId ||
+                      loadRampProjectField?.options?.linkedTableId,
+              )
+            : null;
+    const projectRecords = useRecords(projectsTable || fallbackTable);
+    const projectRecordsById = useMemo(() => {
+        if (!projectsTable || !projectRecords) return new Map();
+        return new Map(projectRecords.map((record) => [record.id, record]));
+    }, [projectsTable, projectRecords]);
 
     const session = useSession();
     const currentUser = session?.currentUser || null;
@@ -661,6 +712,7 @@ function LandBankApp() {
                       loadRampStatusField,
                       loadRampLastModifiedField,
                       loadRampVerifiedAtField,
+                      loadRampProjectField,
                       years,
                       startYear: timelineStartParts.year,
                       startMonth: timelineStartParts.month,
@@ -676,6 +728,7 @@ function LandBankApp() {
             loadRampStatusField,
             loadRampLastModifiedField,
             loadRampVerifiedAtField,
+            loadRampProjectField,
             years,
             timelineStartParts.year,
             timelineStartParts.month,
@@ -771,6 +824,42 @@ function LandBankApp() {
                 const rampEntries = rampValues.entries || [];
                 const pendingCount = rampEntries.filter((entry) => !entry.verified).length;
 
+                const quarterEntries = {};
+                for (const entry of rampEntries) {
+                    if (entry.mw == null || entry.afterHorizon || !entry.inHorizon) continue;
+                    const entryQuarter = quarterFromMonth(entry.dateParts?.month);
+                    const entryKey =
+                        entryQuarter && entry.dateParts?.year
+                            ? quarterKey(entry.dateParts.year, entryQuarter)
+                            : null;
+                    if (!entryKey) continue;
+                    (quarterEntries[entryKey] || (quarterEntries[entryKey] = [])).push(entry);
+                }
+
+                const projectGroupsByLabel = new Map();
+                for (const entry of rampEntries) {
+                    const label = entry.projectLabel || 'Unassigned';
+                    const group =
+                        projectGroupsByLabel.get(label) ||
+                        (() => {
+                            const created = {label, entries: [], mw: null, record: null};
+                            projectGroupsByLabel.set(label, created);
+                            return created;
+                        })();
+                    group.entries.push(entry);
+                    if (entry.mw != null) {
+                        group.mw = (group.mw || 0) + entry.mw;
+                    }
+                    if (!group.record && entry.projectRecordId) {
+                        group.record = projectRecordsById.get(entry.projectRecordId) || null;
+                    }
+                }
+                const projectGroups = Array.from(projectGroupsByLabel.values()).sort((a, b) => {
+                    if (a.label === 'Unassigned') return 1;
+                    if (b.label === 'Unassigned') return -1;
+                    return a.label.localeCompare(b.label);
+                });
+
                 return {
                     id: record.id,
                     record,
@@ -792,6 +881,8 @@ function LandBankApp() {
                     mva,
                     longTermMw,
                     quarters,
+                    quarterEntries,
+                    projectGroups,
                     rampEntries,
                     pendingCount,
                     verifiedCount: rampEntries.length - pendingCount,
@@ -812,6 +903,7 @@ function LandBankApp() {
         liveMwField,
         pipelineMwField,
         rampByCampus,
+        projectRecordsById,
         years,
         isDirectorView,
         campusDirectorField,
@@ -1004,6 +1096,7 @@ function LandBankApp() {
                         canExpandRamp={canExpandRamp}
                         onCampusClick={(record) => setEditingCampus(record)}
                         onRampClick={(record) => expandRecord(record)}
+                        onProjectClick={(record) => expandRecord(record)}
                         view={dashboardView}
                         emptyMessage={
                             isDirectorView && !currentUser
@@ -1035,6 +1128,8 @@ function LandBankApp() {
                     supplierField={campusNameField}
                     landStatusField={landStatusField}
                     rezoningStatusField={rezoningStatusField}
+                    waterCapacityField={waterCapacityField}
+                    powerConfidenceField={powerConfidenceField}
                     onClose={() => setEditingCampus(null)}
                 />
             ) : null}
