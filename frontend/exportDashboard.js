@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs';
-import {MVA_THRESHOLD, toNumber} from './utils';
+import {MVA_THRESHOLD, buildFootnotes, footnoteText, toNumber} from './utils';
 
 const COLOR = {
     navy: 'FF1D4F91',
@@ -79,9 +79,10 @@ function sumField(rows, getter) {
     return hasValue ? total : '';
 }
 
-function rowValues(row, years) {
+function rowValues(row, years, markers) {
+    const marker = markers?.length ? ` [${markers.join(', ')}]` : '';
     return [
-        row.campus || '',
+        `${row.campus || ''}${marker}`.trim(),
         row.metro || '',
         row.supplierBuildingCode || '',
         row.landStatus || '',
@@ -133,7 +134,8 @@ function isNumericCol(col) {
     return col >= 8;
 }
 
-function addStyledSheet(workbook, {name, rows, years, view, tabArgb}) {
+function addStyledSheet(workbook, {name, rows, years, view, tabArgb, lastVerification}) {
+    const footnotes = buildFootnotes(rows);
     const sheet = workbook.addWorksheet(name, {
         properties: {tabColor: {argb: tabArgb}},
         views: [{state: 'frozen', xSplit: 2, ySplit: 5, showGridLines: false}],
@@ -149,10 +151,16 @@ function addStyledSheet(workbook, {name, rows, years, view, tabArgb}) {
 
     const lastCol = LEFT_HEADERS.length + quarterCols(years).length + 1;
     const viewLabel = view === 'director' ? 'Director view' : 'Enterprise reporting';
+    const verifiedText = lastVerification
+        ? `  ·  Last verified ${lastVerification.dateLabel || ''}${
+              lastVerification.by ? ` by ${lastVerification.by}` : ''
+          }`
+        : '';
     const subtitle =
-        view === 'director'
+        (view === 'director'
             ? `${name}  ·  Projects view`
-            : `${name}  ·  Only Load Ramp records with status Verified are included`;
+            : `${name}  ·  Only Load Ramp records with status Verified are included`) +
+        verifiedText;
 
     sheet.columns = [
         ...LEFT_HEADERS.map((item) => ({width: item.width})),
@@ -243,7 +251,7 @@ function addStyledSheet(workbook, {name, rows, years, view, tabArgb}) {
 
     rows.forEach((row, index) => {
         const excelRow = headBottom + 1 + index;
-        const values = rowValues(row, years);
+        const values = rowValues(row, years, footnotes.markersByRow.get(row.id));
         const stripe = index % 2 === 1;
         values.forEach((value, valueIndex) => {
             const cell = sheet.getCell(excelRow, valueIndex + 1);
@@ -296,9 +304,31 @@ function addStyledSheet(workbook, {name, rows, years, view, tabArgb}) {
         }
         sheet.getRow(totalRow).height = 20;
     }
+
+    if (footnotes.items.length) {
+        let noteRow = headBottom + 1 + rows.length + (rows.length ? 1 : 0) + 1;
+        sheet.mergeCells(noteRow, 1, noteRow, lastCol);
+        sheet.getCell(noteRow, 1).value = 'Notes';
+        sheet.getCell(noteRow, 1).font = {
+            name: 'Calibri',
+            size: 10,
+            bold: true,
+            color: {argb: COLOR.navyDark},
+        };
+        noteRow += 1;
+        footnotes.items.forEach((item) => {
+            sheet.mergeCells(noteRow, 1, noteRow, lastCol);
+            const cell = sheet.getCell(noteRow, 1);
+            cell.value = `[${item.n}] ${footnoteText(item)}`;
+            cell.font = {name: 'Calibri', size: 9, color: {argb: COLOR.text}};
+            cell.alignment = {vertical: 'top', horizontal: 'left', wrapText: true};
+            sheet.getRow(noteRow).height = 26;
+            noteRow += 1;
+        });
+    }
 }
 
-export async function downloadExcel({overRows, underRows, years, view}) {
+export async function downloadExcel({overRows, underRows, years, view, lastVerification}) {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'STACK Land Book';
     workbook.created = new Date();
@@ -309,6 +339,7 @@ export async function downloadExcel({overRows, underRows, years, view}) {
         rows: overRows,
         years,
         view,
+        lastVerification,
         tabArgb: COLOR.navyDark,
     });
     addStyledSheet(workbook, {
@@ -316,6 +347,7 @@ export async function downloadExcel({overRows, underRows, years, view}) {
         rows: underRows,
         years,
         view,
+        lastVerification,
         tabArgb: COLOR.navy,
     });
 

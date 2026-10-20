@@ -692,3 +692,82 @@ export function compareCampusRows(a, b) {
         sensitivity: 'base',
     });
 }
+
+export function isDateOnOrBeforeToday(parts, now = new Date()) {
+    if (!parts?.year) return false;
+    const toKey = (year, month, day) => year * 10000 + (month || 1) * 100 + (day || 1);
+    return (
+        toKey(parts.year, parts.month, parts.day) <=
+        toKey(now.getFullYear(), now.getMonth() + 1, now.getDate())
+    );
+}
+
+export function writeCollaboratorValue(field, user) {
+    if (!field || !user) return null;
+    const ref = user.id ? {id: user.id} : user.email ? {email: user.email} : null;
+    if (!ref) return null;
+    return getFieldType(field) === FieldType.MULTIPLE_COLLABORATORS ? [ref] : ref;
+}
+
+export function readVerifiedAt(record, field) {
+    const ms = getCellTimestamp(record, field);
+    if (ms == null) return null;
+    if (getFieldType(field) === FieldType.DATE) {
+        return {ms, label: formatShortDate(getDateParts(record.getCellValue(field)))};
+    }
+    const date = new Date(ms);
+    return {
+        ms,
+        label: formatShortDate({
+            year: date.getFullYear(),
+            month: date.getMonth() + 1,
+            day: date.getDate(),
+        }),
+    };
+}
+
+export function latestVerification(rows) {
+    let best = null;
+    for (const row of rows) {
+        for (const entry of row.rampEntries || []) {
+            if (!entry.verified || entry.verifiedAtMs == null) continue;
+            if (!best || entry.verifiedAtMs > best.ms) {
+                best = {
+                    ms: entry.verifiedAtMs,
+                    dateLabel: entry.verifiedAtLabel,
+                    by: entry.verifiedByLabel || '',
+                };
+            }
+        }
+    }
+    return best;
+}
+
+export function buildFootnotes(rows) {
+    const items = [];
+    const markersByRow = new Map();
+    for (const row of rows) {
+        const markers = [];
+        for (const entry of row.rampEntries || []) {
+            if (!entry.note) continue;
+            const n = items.length + 1;
+            items.push({
+                n,
+                campus: row.campus,
+                projectLabel: entry.projectLabel,
+                dateLabel: entry.dateLabel,
+                mw: entry.mw,
+                note: entry.note,
+            });
+            markers.push(n);
+        }
+        if (markers.length) markersByRow.set(row.id, markers);
+    }
+    return {items, markersByRow};
+}
+
+export function footnoteText(item) {
+    const where = [item.campus, item.projectLabel, item.dateLabel].filter(Boolean).join(' · ');
+    const mw = item.mw != null ? ` (${formatMw(item.mw)} MW)` : '';
+    return `${where}${mw}: ${item.note}`;
+}

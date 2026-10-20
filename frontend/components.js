@@ -10,6 +10,7 @@ import {
 import {FieldType} from '@airtable/blocks/interface/models';
 import {
     canUpdateCampusField,
+    footnoteText,
     formatMw,
     getFieldType,
     getSelectChoices,
@@ -66,7 +67,9 @@ export function SetupPanel({missing}) {
 export function DashboardHeader({
     logoSrc,
     grossMw,
+    liveMw,
     pipelineMw,
+    lastVerification,
     campusCount,
     view,
     timelineStart,
@@ -127,10 +130,19 @@ export function DashboardHeader({
                     value={formatMw(grossMw, {suffix: true, empty: '—'})}
                 />
                 <SummaryCard
+                    label="Live MW"
+                    value={formatMw(liveMw, {suffix: true, empty: '—'})}
+                />
+                <SummaryCard
                     label="Pipeline MW"
                     value={formatMw(pipelineMw, {suffix: true, empty: '—'})}
                 />
                 <SummaryCard label="Campuses" value={campusCount} />
+                <SummaryCard
+                    label="Last verified"
+                    value={lastVerification?.dateLabel || '—'}
+                    detail={lastVerification?.by ? `by ${lastVerification.by}` : ''}
+                />
                 <label className="inline-flex rounded-lg border border-gray-gray200 dark:border-gray-gray600 bg-white dark:bg-gray-gray700 px-4 py-3 flex-col gap-1 min-w-[180px] shadow-md justify-center">
                     <span className="text-sm font-semibold text-gray-gray700 dark:text-gray-gray200">
                         Select Start Month
@@ -152,7 +164,7 @@ export function DashboardHeader({
     );
 }
 
-function SummaryCard({label, value}) {
+function SummaryCard({label, value, detail}) {
     return (
         <div className="rounded-lg border border-blue-blueLight1 bg-blue-blueLight3 dark:bg-blue-blueDark1/40 dark:border-blue-blueLight1/40 px-4 py-3 min-w-[140px]">
             <div className="text-sm font-medium text-blue-blueDark1 dark:text-blue-blueLight1">
@@ -161,6 +173,11 @@ function SummaryCard({label, value}) {
             <div className="text-2xl font-semibold tabular-nums text-blue-blueDark1 dark:text-blue-blueLight2">
                 {value}
             </div>
+            {detail ? (
+                <div className="text-xs text-blue-blueDark1 dark:text-blue-blueLight1">
+                    {detail}
+                </div>
+            ) : null}
         </div>
     );
 }
@@ -169,6 +186,7 @@ export function ViewBanner({
     view,
     userName,
     pendingCount = 0,
+    verifiableCount = 0,
     canAutoUnverify,
     canVerify,
     isVerifying = false,
@@ -190,8 +208,14 @@ export function ViewBanner({
                     ) : null}
                     {canVerify ? (
                         <VerifyButton
-                            label={isVerifying ? 'Verifying…' : 'Verify'}
-                            disabled={isVerifying || pendingCount === 0}
+                            label={
+                                isVerifying
+                                    ? 'Verifying…'
+                                    : pendingCount > 0
+                                      ? 'Verify'
+                                      : 'Re-verify'
+                            }
+                            disabled={isVerifying || verifiableCount === 0}
                             onClick={onVerifyAll}
                         />
                     ) : null}
@@ -200,7 +224,7 @@ export function ViewBanner({
             <p className="mt-1 text-[13px] text-gray-gray700 dark:text-gray-gray200">
                 {`Showing Load Ramp for campuses assigned to ${
                     userName || 'you'
-                }. Verify marks all of your Load Ramp records as Verified.`}
+                }. Verify marks all of your Load Ramp records as Verified and updates the Last Verified date, even if nothing has changed.`}
             </p>
             {isDirector && !canVerify ? (
                 <p className="mt-1 text-[13px] text-orange-orange">
@@ -362,13 +386,16 @@ function ProjectEntriesTable({entries, canExpandRamp, onRampClick}) {
     let hasCumulativeMw = false;
 
     return (
-        <table className="w-full max-w-3xl border-collapse text-[14px]">
+        <table className="w-auto max-w-full border-collapse text-[14px]">
             <thead>
                 <tr className="text-left text-[12px] uppercase text-gray-gray500 dark:text-gray-gray400">
-                    <th className="px-2 py-1 font-semibold">Date</th>
-                    <th className="px-2 py-1 font-semibold">Incremental MW</th>
-                    <th className="px-2 py-1 font-semibold">Cumulative MW</th>
-                    <th className="px-2 py-1 font-semibold">Status</th>
+                    <th className="pl-1.5 pr-4 py-1 font-semibold">Date</th>
+                    <th className="pl-1.5 pr-4 py-1 font-semibold">Incremental MW</th>
+                    <th className="pl-1.5 pr-4 py-1 font-semibold">Cumulative MW</th>
+                    <th className="pl-1.5 pr-4 py-1 font-semibold">Status</th>
+                    <th className="pl-1.5 pr-4 py-1 font-semibold">Verified By</th>
+                    <th className="pl-1.5 pr-4 py-1 font-semibold">Verified On</th>
+                    <th className="pl-1.5 pr-4 py-1 font-semibold">Notes</th>
                 </tr>
             </thead>
             <tbody>
@@ -382,7 +409,7 @@ function ProjectEntriesTable({entries, canExpandRamp, onRampClick}) {
                             key={entry.id}
                             className="border-t border-gray-gray200 dark:border-gray-gray600"
                         >
-                            <td className="px-2 py-1.5">
+                            <td className="pl-1.5 pr-4 py-1.5">
                                 {canExpandRamp && onRampClick && entry.record ? (
                                     <button
                                         type="button"
@@ -395,11 +422,11 @@ function ProjectEntriesTable({entries, canExpandRamp, onRampClick}) {
                                     entry.dateLabel || '—'
                                 )}
                             </td>
-                            <td className="px-2 py-1.5 tabular-nums">{formatMw(entry.mw)}</td>
-                            <td className="px-2 py-1.5 tabular-nums">
+                            <td className="pl-1.5 pr-4 py-1.5 tabular-nums">{formatMw(entry.mw)}</td>
+                            <td className="pl-1.5 pr-4 py-1.5 tabular-nums">
                                 {hasCumulativeMw ? formatMw(cumulativeMw) : '—'}
                             </td>
-                            <td className="px-2 py-1.5">
+                            <td className="pl-1.5 pr-4 py-1.5">
                                 {entry.verified ? (
                                     <span className="font-semibold text-green-green">Verified</span>
                                 ) : (
@@ -407,6 +434,13 @@ function ProjectEntriesTable({entries, canExpandRamp, onRampClick}) {
                                         {entry.statusLabel || 'Not Verified'}
                                     </span>
                                 )}
+                            </td>
+                            <td className="pl-1.5 pr-4 py-1.5">{entry.verifiedByLabel || '—'}</td>
+                            <td className="pl-1.5 pr-4 py-1.5 whitespace-nowrap">
+                                {entry.verifiedAtLabel || '—'}
+                            </td>
+                            <td className="pl-1.5 pr-4 py-1.5 whitespace-pre-wrap break-words">
+                                {entry.note || '—'}
                             </td>
                         </tr>
                     );
@@ -440,12 +474,12 @@ function RampEntriesPanel({row, canExpandRamp, onRampClick, onProjectClick}) {
                                             type="button"
                                             onClick={() => onProjectClick(group.record)}
                                             title="Open this project"
-                                            className="text-[13px] font-semibold text-blue-blue dark:text-blue-blueLight1 underline-offset-2 hover:underline"
+                                            className="text-[17px] font-semibold text-blue-blue dark:text-blue-blueLight1 underline-offset-2 hover:underline"
                                         >
                                             {group.label}
                                         </button>
                                     ) : (
-                                        <p className="text-[13px] font-semibold text-gray-gray800 dark:text-gray-gray100">
+                                        <p className="text-[17px] font-semibold text-gray-gray800 dark:text-gray-gray100">
                                             {group.label}
                                         </p>
                                     )}
@@ -474,6 +508,7 @@ export function LandBankTable({
     onCampusClick,
     onRampClick,
     onProjectClick,
+    footnotes,
     emptyMessage,
     view = 'enterprise',
 }) {
@@ -508,6 +543,7 @@ export function LandBankTable({
     }
 
     return (
+        <>
             <table className="border-collapse table-fixed text-[14px] w-full">
                 <colgroup>
                     {showDetails ? <col style={colStyle(COL.expand)} /> : null}
@@ -715,6 +751,11 @@ export function LandBankTable({
                                                     {row.campus || '—'}
                                                 </span>
                                             )}
+                                            {footnotes?.markersByRow.get(row.id) ? (
+                                                <sup className="ml-0.5 text-[11px] font-semibold text-gray-gray600 dark:text-gray-gray300">
+                                                    {footnotes.markersByRow.get(row.id).join(', ')}
+                                                </sup>
+                                            ) : null}
                                             {view === 'director' && row.pendingCount > 0 ? (
                                                 <span className="mt-0.5 block text-[12px] font-medium text-orange-orange">
                                                     {row.pendingCount} to verify
@@ -856,6 +897,22 @@ export function LandBankTable({
                     </tfoot>
                 ) : null}
             </table>
+            {footnotes?.items.length ? (
+                <div className="mt-4 text-[13px] text-gray-gray700 dark:text-gray-gray200">
+                    <p className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-gray-gray600 dark:text-gray-gray300">
+                        Notes
+                    </p>
+                    <ol className="flex flex-col gap-1">
+                        {footnotes.items.map((item) => (
+                            <li key={item.n}>
+                                <sup className="mr-1 font-semibold">{item.n}</sup>
+                                {footnoteText(item)}
+                            </li>
+                        ))}
+                    </ol>
+                </div>
+            ) : null}
+        </>
     );
 }
 

@@ -18,6 +18,7 @@ import {
 } from './components';
 import {downloadExcel} from './exportDashboard';
 import {
+    buildFootnotes,
     buildQuarterColumns,
     compareCampusRows,
     currentYearMonthString,
@@ -31,6 +32,8 @@ import {
     getSelectColorToken,
     getSelectName,
     isCampusNameField,
+    isCollaboratorField,
+    isDateOnOrBeforeToday,
     isDateAfterHorizon,
     isDateBeforeStart,
     isDateLikeField,
@@ -45,6 +48,7 @@ import {
     isSingleSelectField,
     isVerifiedStatusLabel,
     horizonRangeLabel,
+    latestVerification,
     lastQuarterOfHorizon,
     parseYearMonth,
     isTextLikeField,
@@ -52,12 +56,14 @@ import {
     quarterKey,
     readCellDisplayName,
     readNumericOrNull,
+    readVerifiedAt,
     recordAssignedToUser,
     resolveField,
     updateRecordsInChunks,
     unverifiedChoice,
     verifiedChoice,
     writeSelectChoice,
+    writeCollaboratorValue,
     writeTimestampForField,
 } from './utils';
 import stackLogo from './assets/stackLogoData.js';
@@ -214,20 +220,6 @@ function getCustomProperties(base) {
                 'confidence level',
             ],
         ),
-        fieldProperty(
-            'liveMwField',
-            'Current Power — Live MW',
-            campusesTable,
-            isNum,
-            ['live mw', 'current power', 'energized mw'],
-        ),
-        fieldProperty(
-            'pipelineMwField',
-            'Forecasted Power — Pipeline MW',
-            campusesTable,
-            isNum,
-            ['pipeline mw', 'forecasted power', 'forecast mw'],
-        ),
         ...(loadRampFieldsTable
             ? [
                   {
@@ -350,6 +342,35 @@ function getCustomProperties(base) {
                           }),
                   },
                   {
+                      key: 'loadRampNotesField',
+                      label: 'Notes (on Load Ramp — shown as footnotes)',
+                      type: 'field',
+                      table: loadRampFieldsTable,
+                      shouldFieldBeAllowed: isTextLikeField,
+                      defaultValue:
+                          findFieldByExactNames(loadRampFieldsTable, [
+                              'Notes',
+                              'Note',
+                              'Footnote',
+                              'Footnotes',
+                          ]) ||
+                          findFieldByNameHints(loadRampFieldsTable, ['notes', 'note', 'footnote'], {
+                              typePredicate: isTextLikeField,
+                          }),
+                  },
+                  {
+                      key: 'loadRampVerifiedByField',
+                      label: 'Verified By (on Load Ramp — user field)',
+                      type: 'field',
+                      table: loadRampFieldsTable,
+                      shouldFieldBeAllowed: isCollaboratorField,
+                      defaultValue:
+                          findFieldByExactNames(loadRampFieldsTable, ['Verified By']) ||
+                          findFieldByNameHints(loadRampFieldsTable, ['verified by'], {
+                              typePredicate: isCollaboratorField,
+                          }),
+                  },
+                  {
                       key: 'loadRampProjectField',
                       label: 'Project (on Load Ramp — groups entries into phases)',
                       type: 'field',
@@ -412,21 +433,6 @@ function pushRampEntry(existing, entry) {
     }
 }
 
-function sumIncrementalLoads(quarters, longTermMw) {
-    let total = 0;
-    let hasValue = false;
-    for (const value of Object.values(quarters || {})) {
-        if (value == null || value === '') continue;
-        total += Number(value) || 0;
-        hasValue = true;
-    }
-    if (longTermMw != null && longTermMw !== '') {
-        total += Number(longTermMw) || 0;
-        hasValue = true;
-    }
-    return hasValue ? total : null;
-}
-
 function readRampDateParts(record, dateField) {
     if (!record || !dateField) return null;
     return (
@@ -444,6 +450,8 @@ function buildRampLookup({
     loadRampLastModifiedField,
     loadRampVerifiedAtField,
     loadRampProjectField,
+    loadRampNotesField,
+    loadRampVerifiedByField,
     years,
     startYear,
     startMonth,
@@ -487,6 +495,9 @@ function buildRampLookup({
         const projectRecordId = loadRampProjectField
             ? getLinkedRecordIds(record.getCellValue(loadRampProjectField))[0] || null
             : null;
+        const verifiedAt = loadRampVerifiedAtField
+            ? readVerifiedAt(record, loadRampVerifiedAtField)
+            : null;
         const entry = {
             id: record.id,
             record,
@@ -499,6 +510,12 @@ function buildRampLookup({
             inHorizon: isInHorizon,
             projectLabel,
             projectRecordId,
+            note: loadRampNotesField ? readCellDisplayName(record, loadRampNotesField) : '',
+            verifiedAtMs: verifiedAt?.ms ?? null,
+            verifiedAtLabel: verifiedAt?.label || '',
+            verifiedByLabel: loadRampVerifiedByField
+                ? readCellDisplayName(record, loadRampVerifiedByField)
+                : '',
         };
 
         const addTo = (mapKey) => {
@@ -570,15 +587,6 @@ function LandBankApp() {
         customPropertyValueByKey.powerConfidenceField,
         {exactNames: ['Power Confidence Level', 'Power Utility Confidence Level']},
     );
-    const liveMwField = resolveField(campusesTable, customPropertyValueByKey.liveMwField, {
-        exactNames: ['Live MW'],
-    });
-    const pipelineMwField = resolveField(
-        campusesTable,
-        customPropertyValueByKey.pipelineMwField,
-        {exactNames: ['Pipeline MW']},
-    );
-
     const loadRampCampusField = resolveField(
         loadRampTable,
         customPropertyValueByKey.loadRampCampusField,
@@ -639,6 +647,16 @@ function LandBankApp() {
             exactNames: ['Project_linked', 'Project Linked', 'Project'],
             typePredicate: (field) => isLinkField(field) || isCampusNameField(field),
         },
+    );
+    const loadRampNotesField = resolveField(
+        loadRampTable,
+        customPropertyValueByKey.loadRampNotesField,
+        {exactNames: ['Notes', 'Note', 'Footnote', 'Footnotes'], typePredicate: isTextLikeField},
+    );
+    const loadRampVerifiedByField = resolveField(
+        loadRampTable,
+        customPropertyValueByKey.loadRampVerifiedByField,
+        {exactNames: ['Verified By'], typePredicate: isCollaboratorField},
     );
     const projectsTable =
         loadRampProjectField && isLinkField(loadRampProjectField)
@@ -713,6 +731,8 @@ function LandBankApp() {
                       loadRampLastModifiedField,
                       loadRampVerifiedAtField,
                       loadRampProjectField,
+                      loadRampNotesField,
+                      loadRampVerifiedByField,
                       years,
                       startYear: timelineStartParts.year,
                       startMonth: timelineStartParts.month,
@@ -729,6 +749,8 @@ function LandBankApp() {
             loadRampLastModifiedField,
             loadRampVerifiedAtField,
             loadRampProjectField,
+            loadRampNotesField,
+            loadRampVerifiedByField,
             years,
             timelineStartParts.year,
             timelineStartParts.month,
@@ -799,8 +821,6 @@ function LandBankApp() {
                 const land = selectLabelAndColor(record, landStatusField);
                 const rezoning = selectLabelAndColor(record, rezoningStatusField);
                 const power = selectLabelAndColor(record, powerConfidenceField);
-                const liveMw = readNumericOrNull(record, liveMwField);
-                const pipelineMw = readNumericOrNull(record, pipelineMwField);
                 const rampValues =
                     rampByCampus.get(record.id) ||
                     (campus
@@ -819,9 +839,20 @@ function LandBankApp() {
                     }
                 }
                 const longTermMw = rampValues.longTerm;
-                const grossMw = sumIncrementalLoads(quarters, longTermMw);
-                const mva = grossMw;
                 const rampEntries = rampValues.entries || [];
+                let liveMw = null;
+                let pipelineMw = null;
+                for (const entry of rampEntries) {
+                    if (entry.mw == null || !entry.dateParts?.year) continue;
+                    if (isDateOnOrBeforeToday(entry.dateParts)) {
+                        liveMw = (liveMw || 0) + entry.mw;
+                    } else {
+                        pipelineMw = (pipelineMw || 0) + entry.mw;
+                    }
+                }
+                const grossMw =
+                    liveMw == null && pipelineMw == null ? null : (liveMw || 0) + (pipelineMw || 0);
+                const mva = grossMw;
                 const pendingCount = rampEntries.filter((entry) => !entry.verified).length;
 
                 const quarterEntries = {};
@@ -900,8 +931,6 @@ function LandBankApp() {
         rezoningStatusField,
         waterCapacityField,
         powerConfidenceField,
-        liveMwField,
-        pipelineMwField,
         rampByCampus,
         projectRecordsById,
         years,
@@ -914,6 +943,8 @@ function LandBankApp() {
     const overRows = useMemo(() => rows.filter((row) => isOver100Mva(row.mva)), [rows]);
     const underRows = useMemo(() => rows.filter((row) => !isOver100Mva(row.mva)), [rows]);
     const visibleRows = activeTab === 'over' ? overRows : underRows;
+    const footnotes = useMemo(() => buildFootnotes(visibleRows), [visibleRows]);
+    const lastVerification = useMemo(() => latestVerification(rows), [rows]);
     const pendingRecords = useMemo(() => {
         const seen = new Set();
         const records = [];
@@ -927,6 +958,18 @@ function LandBankApp() {
         return records;
     }, [rows]);
     const pendingCount = pendingRecords.length;
+    const verifiableRecords = useMemo(() => {
+        const seen = new Set();
+        const records = [];
+        for (const row of rows) {
+            for (const entry of row.rampEntries || []) {
+                if (!entry.record || seen.has(entry.record.id)) continue;
+                seen.add(entry.record.id);
+                records.push(entry.record);
+            }
+        }
+        return records;
+    }, [rows]);
 
     const canExpandRamp = Boolean(loadRampTable?.hasPermissionToExpandRecords?.());
     const canVerify = Boolean(
@@ -997,7 +1040,7 @@ function LandBankApp() {
     ]);
 
     const handleVerifyAll = useCallback(async () => {
-        if (!canVerify || !pendingRecords.length) return;
+        if (!canVerify || !verifiableRecords.length) return;
         const choice = writeSelectChoice(verifiedChoice(loadRampStatusField));
         if (!choice) return;
         setIsVerifying(true);
@@ -1007,20 +1050,26 @@ function LandBankApp() {
         if (loadRampVerifiedAtField) {
             fields[loadRampVerifiedAtField.id] = writeTimestampForField(loadRampVerifiedAtField);
         }
+        if (loadRampVerifiedByField) {
+            const verifiedBy = writeCollaboratorValue(loadRampVerifiedByField, currentUser);
+            if (verifiedBy) fields[loadRampVerifiedByField.id] = verifiedBy;
+        }
         try {
             await updateRecordsInChunks(
                 loadRampTable,
-                pendingRecords.map((record) => ({id: record.id, fields})),
+                verifiableRecords.map((record) => ({id: record.id, fields})),
             );
         } finally {
             setIsVerifying(false);
         }
     }, [
         canVerify,
-        pendingRecords,
+        verifiableRecords,
         loadRampTable,
         loadRampStatusField,
         loadRampVerifiedAtField,
+        loadRampVerifiedByField,
+        currentUser,
     ]);
 
     const handleDownloadExcel = useCallback(async () => {
@@ -1031,13 +1080,14 @@ function LandBankApp() {
                 underRows,
                 years,
                 view: dashboardView,
+                lastVerification,
             });
         } catch (error) {
             void error;
         } finally {
             setIsDownloading(false);
         }
-    }, [overRows, underRows, years, dashboardView]);
+    }, [overRows, underRows, years, dashboardView, lastVerification]);
 
     if (errorState) {
         return (
@@ -1067,6 +1117,11 @@ function LandBankApp() {
                             (sum, row) => sum + (row.grossMw == null ? 0 : row.grossMw),
                             0,
                         )}
+                        liveMw={visibleRows.reduce(
+                            (sum, row) => sum + (row.liveMw == null ? 0 : row.liveMw),
+                            0,
+                        )}
+                        lastVerification={lastVerification}
                         pipelineMw={visibleRows.reduce(
                             (sum, row) => sum + (row.pipelineMw == null ? 0 : row.pipelineMw),
                             0,
@@ -1077,6 +1132,7 @@ function LandBankApp() {
                         view={dashboardView}
                         userName={currentUser?.name || currentUser?.email || ''}
                         pendingCount={pendingCount}
+                        verifiableCount={verifiableRecords.length}
                         canAutoUnverify={canAutoUnverify}
                         canVerify={canVerify}
                         isVerifying={isVerifying}
@@ -1094,6 +1150,7 @@ function LandBankApp() {
                         rows={visibleRows}
                         years={years}
                         canExpandRamp={canExpandRamp}
+                        footnotes={footnotes}
                         onCampusClick={(record) => setEditingCampus(record)}
                         onRampClick={(record) => expandRecord(record)}
                         onProjectClick={(record) => expandRecord(record)}
