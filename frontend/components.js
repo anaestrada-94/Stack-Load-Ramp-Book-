@@ -10,12 +10,15 @@ import {
 import {FieldType} from '@airtable/blocks/interface/models';
 import {
     canUpdateCampusField,
+    daysAgoLabel,
+    daysSince,
     footnoteText,
     formatMw,
     getFieldType,
     getSelectChoices,
     isWritableCampusField,
     MVA_THRESHOLD,
+    REVERIFY_AFTER_DAYS,
     readFormValueForField,
     writeValueForField,
 } from './utils';
@@ -141,7 +144,12 @@ export function DashboardHeader({
                 <SummaryCard
                     label="Last verified"
                     value={lastVerification?.dateLabel || '—'}
-                    detail={lastVerification?.by ? `by ${lastVerification.by}` : ''}
+                    detail={[
+                        daysAgoLabel(daysSince(lastVerification?.ms)),
+                        lastVerification?.by && `by ${lastVerification.by}`,
+                    ]
+                        .filter(Boolean)
+                        .join(' · ')}
                 />
                 <label className="inline-flex rounded-lg border border-gray-gray200 dark:border-gray-gray600 bg-white dark:bg-gray-gray700 px-4 py-3 flex-col gap-1 min-w-[180px] shadow-md justify-center">
                     <span className="text-sm font-semibold text-gray-gray700 dark:text-gray-gray200">
@@ -187,6 +195,7 @@ export function ViewBanner({
     userName,
     pendingCount = 0,
     verifiableCount = 0,
+    lastVerification = null,
     canAutoUnverify,
     canVerify,
     isVerifying = false,
@@ -226,6 +235,17 @@ export function ViewBanner({
                     userName || 'you'
                 }. Verify marks all of your Load Ramp records as Verified and updates the Last Verified date, even if nothing has changed.`}
             </p>
+            {verifiableCount > 0 &&
+            (lastVerification == null ||
+                daysSince(lastVerification.ms) >= REVERIFY_AFTER_DAYS) ? (
+                <p className="mt-1 text-[13px] font-semibold text-orange-orange">
+                    {lastVerification
+                        ? `Last verified ${daysAgoLabel(
+                              daysSince(lastVerification.ms),
+                          )} — please re-verify your Load Ramp this month.`
+                        : 'Not verified yet — please verify your Load Ramp.'}
+                </p>
+            ) : null}
             {isDirector && !canVerify ? (
                 <p className="mt-1 text-[13px] text-orange-orange">
                     Verify is unavailable until the Status field has a Verified choice and you

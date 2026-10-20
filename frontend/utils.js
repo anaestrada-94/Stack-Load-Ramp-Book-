@@ -771,3 +771,18 @@ export function footnoteText(item) {
     const mw = item.mw != null ? ` (${formatMw(item.mw)} MW)` : '';
     return `${where}${mw}: ${item.note}`;
 }
+
+export const REVERIFY_AFTER_DAYS = 30;
+
+export function daysSince(ms, now = new Date()) {
+    if (ms == null) return null;
+    const dayStart = (date) =>
+        new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    return Math.max(0, Math.round((dayStart(now) - dayStart(new Date(ms))) / 86400000));
+}
+
+export function daysAgoLabel(days) {
+    if (days == null) return '';
+    if (days === 0) return 'today';
+    return days === 1 ? '1 day ago' : `${days} days ago`;
+}

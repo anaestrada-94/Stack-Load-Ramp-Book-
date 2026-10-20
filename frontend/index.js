@@ -1133,6 +1133,7 @@ function LandBankApp() {
                         userName={currentUser?.name || currentUser?.email || ''}
                         pendingCount={pendingCount}
                         verifiableCount={verifiableRecords.length}
+                        lastVerification={lastVerification}
                         canAutoUnverify={canAutoUnverify}
                         canVerify={canVerify}
                         isVerifying={isVerifying}
